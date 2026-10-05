@@ -1,0 +1,20 @@
+# Build output
+build/
+build-*/
+
+# Game assets (installed from the original CD, not redistributable)
+/assets/
+
+# IDE/editor
+.vs/
+.vscode/
+*.user
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Stray test/log output
+*.log
+

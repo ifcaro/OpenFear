@@ -1,0 +1,24 @@
+#!/bin/sh
+# Blocks a commit if any staged .cpp/.h file doesn't match .clang-format.
+# Not installed automatically - see scripts/git-hooks/README.md.
+
+command -v clang-format >/dev/null 2>&1 || {
+    echo "pre-commit: clang-format not found on PATH, skipping format check" >&2
+    exit 0
+}
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h)$')
+[ -z "$staged" ] && exit 0
+
+bad=""
+for f in $staged; do
+    clang-format --dry-run --Werror "$f" >/dev/null 2>&1 || bad="$bad $f"
+done
+
+if [ -n "$bad" ]; then
+    echo "pre-commit: these files don't match .clang-format:" >&2
+    for f in $bad; do echo "  $f" >&2; done
+    echo "Run: clang-format -i$bad" >&2
+    echo "(or: cmake --build build --target format)" >&2
+    exit 1
+fi

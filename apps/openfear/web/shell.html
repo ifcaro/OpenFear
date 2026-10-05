@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenFear</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <!-- favicon.png is copied from icon/icon-32.png next to this file by CMake's POST_BUILD
+       step (apps/openfear/CMakeLists.txt), not embedded via --embed-file. -->
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    #openfear-stage {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    canvas.emscripten {
+      /* Fixed 640x480 game coordinate space (see IRenderer) - scaled to fit the
+         viewport by the browser, never resized/stretched by Emscripten's own
+         "Resize canvas" JS (deliberately not wired up here). */
+      width: auto;
+      height: 100%;
+      max-width: 100%;
+      image-rendering: pixelated;
+      outline: none;
+      background: #000;
+    }
+    #openfear-status {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      color: #888;
+      font: 13px/1.4 -apple-system, Segoe UI, sans-serif;
+      pointer-events: none;
+    }
+    #openfear-fullscreen {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 10000;
+      background: rgba(255,255,255,0.08);
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font: 12px sans-serif;
+      cursor: pointer;
+    }
+    #openfear-fullscreen:hover { background: rgba(255,255,255,0.16); }
+  </style>
+</head>
+<body>
+  <div id="openfear-stage">
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  </div>
+  <div id="openfear-status">Loading...</div>
+  <button id="openfear-fullscreen" onclick="openfearToggleFullscreen()">Fullscreen</button>
+
+  <script>
+    var canvasElement = document.getElementById('canvas');
+    var statusElement = document.getElementById('status') || document.getElementById('openfear-status');
+
+    // Plain browser Fullscreen API on the canvas itself, not Module.requestFullscreen() -
+    // that Emscripten helper only exists if 'requestFullscreen' is in
+    // -sEXPORTED_RUNTIME_METHODS (it isn't in this build), so it would silently no-op. This
+    // avoids depending on Emscripten's export list at all.
+    function openfearToggleFullscreen() {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+        return;
+      }
+      var stage = document.getElementById('openfear-stage');
+      (stage.requestFullscreen || stage.webkitRequestFullscreen).call(stage);
+    }
+
+    // WebGL context loss (e.g. a GPU driver reset mid-session) fails loudly instead of
+    // silently freezing on a black frame.
+    canvasElement.addEventListener('webglcontextlost', function (e) {
+      alert('WebGL context lost. You will need to reload the page.');
+      e.preventDefault();
+    }, false);
+
+    var Module = {
+      canvas: canvasElement,
+      print: function () { console.log.apply(console, arguments); },
+      printErr: function () { console.error.apply(console, arguments); },
+      setStatus: function (text) {
+        var el = document.getElementById('openfear-status');
+        if (!el) return;
+        el.textContent = text;
+        el.style.display = text ? 'block' : 'none';
+      },
+      totalDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        this.setStatus(left
+          ? 'Preparing... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')'
+          : '');
+      }
+    };
+    Module.setStatus('Downloading...');
+    window.onerror = window.onunhandledrejection = function () {
+      Module.setStatus('Exception thrown, see JavaScript console');
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

@@ -1,0 +1,23 @@
+name: Format Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      # Runs clang-format directly (not via the CMake `format-check` target)
+      # so this job doesn't need to configure the full project (vcpkg/SDL3,
+      # libcinepak/libindeo3 FetchContent) just to check style.
+      - name: Check formatting (.clang-format at repo root)
+        run: |
+          files=$(find apps include src -type f \( -name '*.cpp' -o -name '*.h' \))
+          clang-format --dry-run --Werror $files
