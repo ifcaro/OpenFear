@@ -121,7 +121,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build tools
-        run: apk add --no-cache cmake make g++ git
+        # tar/zstd: Alpine's default BusyBox tar lacks the flags actions/cache
+        # needs, silently failing to save the cache with no error in the job
+        # log - this pulls in real GNU tar + zstd instead.
+        run: apk add --no-cache cmake make g++ git tar zstd
 
       - name: Cache FetchContent deps (SDL3/libcinepak/libindeo3)
         uses: actions/cache@v4
