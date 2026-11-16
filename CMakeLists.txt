@@ -42,9 +42,12 @@ FetchContent_MakeAvailable(libindeo3)
 # libindeo3 above, added_subdirectory under the SAME toolchain already
 # active for this whole configure, so it cross-compiles automatically with
 # zero extra flags (confirmed matches the known-working manual build: just
-# -DCMAKE_TOOLCHAIN_FILE=.../ps2dev.cmake, nothing else). Native/Emscripten
-# get SDL3 from vcpkg/the Emscripten port instead (see
-# openfear_link_sdl3() in OpenFearPlatform.cmake) - this fetch is PS2-only.
+# -DCMAKE_TOOLCHAIN_FILE=.../ps2dev.cmake, nothing else). Linux also builds
+# SDL3 from source (see below) rather than via vcpkg, so its ALSA backend
+# links the distro's own libasound.so dynamically instead of vcpkg's static
+# triplet embedding ALSA (LGPL-2.1+) into the binary. Windows/macOS/
+# Emscripten still get SDL3 from vcpkg/the Emscripten port instead (see
+# openfear_link_sdl3() in OpenFearPlatform.cmake) - no LGPL concern there.
 if(DEFINED ENV{PS2SDK})
     # SDL3's PS2 backend unconditionally links "ps2_drivers", the GPLv3
     # ps2sdk/ports package - not used here (Ps2Boot.cpp provides those 4
@@ -60,6 +63,20 @@ if(DEFINED ENV{PS2SDK})
         GIT_REPOSITORY https://github.com/libsdl-org/SDL
         GIT_TAG        ea7a2dabfd1ab6b0a5720568ffd207f5825e47f1
         PATCH_COMMAND ${CMAKE_COMMAND} -P "${PROJECT_SOURCE_DIR}/cmake/PatchRemovePs2Drivers.cmake")
+    FetchContent_MakeAvailable(SDL3)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT EMSCRIPTEN)
+    # Matches the release vcpkg installs on Windows, keeping both desktop
+    # targets on the same SDL3.
+    #
+    # SDL3 itself is forced static here (its own shared/static choice is
+    # independent of how it links ALSA) so the Linux artifact stays a single
+    # binary - the system ALSA dependency still links dynamic regardless,
+    # via SDL_ALSA's own find_package(ALSA MODULE).
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL
+        GIT_TAG        release-3.4.20)
     FetchContent_MakeAvailable(SDL3)
 endif()
 

@@ -70,6 +70,17 @@ function(openfear_link_sdl3 target)
         return()
     endif()
 
+    # Linux also builds SDL3 from source (root CMakeLists.txt's FetchContent
+    # block) instead of vcpkg, so its own CMake already created SDL3::SDL3
+    # here as an in-tree subdirectory target - link it directly, same as the
+    # PS2 branch above, skipping the vcpkg/pkg-config lookup below entirely.
+    if(TARGET SDL3::SDL3 OR TARGET SDL3::SDL3-static)
+        target_link_libraries(${target} PUBLIC
+            $<IF:$<TARGET_EXISTS:SDL3::SDL3>,SDL3::SDL3,SDL3::SDL3-static>
+        )
+        return()
+    endif()
+
     find_package(SDL3 QUIET CONFIG)
     if(NOT SDL3_FOUND)
         find_package(PkgConfig REQUIRED)
