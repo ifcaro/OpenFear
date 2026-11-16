@@ -3,6 +3,8 @@
 #include "openfear/assets/IAssetProvider.h"
 #include <cstdio>
 #include <filesystem>
+#include <string>
+#include <unordered_map>
 
 namespace openfear {
 
@@ -34,6 +36,13 @@ protected:
 
     std::filesystem::path root_;
     assets::CdPathRemap remap_;
+
+    // Normalized (uppercase) relative path -> real on-disk relative path,
+    // case preserved - remap_ alone can't recover this, since it's built
+    // from already-uppercased paths. Only changes which file actually
+    // gets opened on a case-sensitive filesystem; a case-insensitive one
+    // opens the same file either way regardless of case.
+    std::unordered_map<std::string, std::string> case_map_;
 
     std::filesystem::path Resolve(const std::string& path) const;
 };

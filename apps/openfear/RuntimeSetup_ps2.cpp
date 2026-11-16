@@ -18,9 +18,12 @@ std::optional<RuntimeContext> InitializeRuntime(int argc, char* argv[]) {
         return std::nullopt;
     }
 
-    context.platform->renderer->beginFrame();
-    context.platform->renderer->clear(0, 0, 0);
-    context.platform->renderer->endFrame();
+    // Asset discovery on a real CD/USB is a single blocking scan (no asset
+    // provider to pump a render loop through yet) - a visible message here
+    // is the only sign of life the player gets before it's found, since a
+    // full folder/USB scan can take several seconds with no other
+    // feedback.
+    platform_show_searching_message(*context.platform);
 
     std::optional<std::filesystem::path> discovered_root;
     for (;;) {
@@ -28,6 +31,7 @@ std::optional<RuntimeContext> InitializeRuntime(int argc, char* argv[]) {
         if (discovered_root) break;
         if (!platform_prompt_retry_assets_missing(*context.platform)) break;
     }
+    platform_unload_discovery_ui(*context.platform);
     if (!discovered_root) {
         // The retry loop above only exits on SDL_EVENT_QUIT, and already
         // showed its own "insert CD/USB" message - no separate one needed.

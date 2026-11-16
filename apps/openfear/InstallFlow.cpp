@@ -67,11 +67,14 @@ std::optional<fs::path> ChooseDestination() {
 // A real Atmosfear CD, as a plain directory - same marker LooksLikeCdLayout()
 // (src/assets/CdLayout.cpp) and AssetLocator::is_valid_root() both key
 // off. --install is only meant to install FROM a raw CD layout - an
-// already-installed source has nothing to reorganize.
+// already-installed source has nothing to reorganize. Case-insensitive via
+// AssetLocator::find_case_insensitive() for the same reason is_valid_root()
+// needs it - real CD/USB mounts can present either name in any case.
 bool LooksLikeRawCdDir(const fs::path& source) {
-    std::error_code ec;
-    return fs::exists(source / "INSTALL" / "ATMOS.EXE", ec) ||
-           fs::exists(source / "install" / "ATMOS.EXE", ec);
+    if (auto install_dir = AssetLocator::find_case_insensitive(source, "INSTALL")) {
+        return AssetLocator::find_case_insensitive(*install_dir, "ATMOS.EXE").has_value();
+    }
+    return false;
 }
 
 std::string ToUpper(std::string s) {
@@ -92,30 +95,39 @@ struct FileOp {
 // wholesale.
 std::vector<FileOp> PlanCdInstall(const fs::path& source) {
     std::vector<FileOp> ops;
-    std::error_code ec;
 
-    for (const auto& entry : fs::directory_iterator(source / "INSTALL", ec)) {
-        if (!entry.is_regular_file()) continue;
-        const auto subdir = assets::ClassifyInstallFile(ToUpper(entry.path().filename().string()));
-        if (!subdir) continue;
-        const fs::path dest_rel = (*subdir == ".") ? entry.path().filename()
-                                                   : fs::path(*subdir) / entry.path().filename();
-        ops.push_back({entry.path(), dest_rel});
+    // Names below are the real installer's own literals (CdLayout.cpp),
+    // resolved case-insensitively since real CD/USB mounts can present
+    // them in any case. Destination keeps that same real case -
+    // NativeAssetProvider resolves it again at read time, so there's
+    // nothing to normalize here.
+    if (auto install_dir = AssetLocator::find_case_insensitive(source, "INSTALL")) {
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(*install_dir, ec)) {
+            if (!entry.is_regular_file()) continue;
+            const auto subdir =
+                assets::ClassifyInstallFile(ToUpper(entry.path().filename().string()));
+            if (!subdir) continue;
+            const fs::path dest_rel = (*subdir == ".")
+                                          ? entry.path().filename()
+                                          : fs::path(*subdir) / entry.path().filename();
+            ops.push_back({entry.path(), dest_rel});
+        }
     }
-    ec.clear();
 
     for (const auto& name : assets::CdRootFiles()) {
-        const fs::path src = source / name;
-        if (fs::exists(src, ec)) ops.push_back({src, name});
-        ec.clear();
+        if (auto found = AssetLocator::find_case_insensitive(source, name))
+            ops.push_back({*found, found->filename()});
     }
 
     for (const auto& name : assets::CdDirs()) {
-        for (const auto& entry : fs::directory_iterator(source / name, ec)) {
-            if (entry.is_regular_file())
-                ops.push_back({entry.path(), fs::path(name) / entry.path().filename()});
+        if (auto dir = AssetLocator::find_case_insensitive(source, name)) {
+            std::error_code ec;
+            for (const auto& entry : fs::directory_iterator(*dir, ec)) {
+                if (entry.is_regular_file())
+                    ops.push_back({entry.path(), fs::path(name) / entry.path().filename()});
+            }
         }
-        ec.clear();
     }
 
     return ops;

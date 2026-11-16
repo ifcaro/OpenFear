@@ -27,6 +27,7 @@ std::optional<RuntimeContext> InitializeRuntime(int argc, char* argv[]) {
         if (discovered_root) break;
         if (!platform_prompt_retry_assets_missing(*context.platform)) break;
     }
+    platform_unload_discovery_ui(*context.platform);
     if (!discovered_root) {
         std::fputs("Atmosfear assets not found.\n"
                    "Options:\n"

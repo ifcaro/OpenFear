@@ -15,20 +15,27 @@ NativeAssetProvider::NativeAssetProvider(fs::path root, bool build_remap) : root
     if (!build_remap) return;
 
     // Every file under root, relative/uppercase/'/'-separated - lets
-    // CdPathRemap detect and translate a raw, un-installed CD layout. A
-    // no-op (empty map) if root already matches the installed layout.
+    // CdPathRemap detect a raw, un-installed CD layout (empty map if
+    // already installed). case_map_ is built from this same walk, keyed
+    // the same way, so Resolve() can recover the real on-disk case a
+    // normalized lookup alone would lose.
     std::vector<std::string> paths;
     std::error_code ec;
     for (const auto& entry : fs::recursive_directory_iterator(root_, ec)) {
         if (!entry.is_regular_file()) continue;
         const fs::path rel = fs::relative(entry.path(), root_, ec);
-        if (!ec) paths.push_back(NormalizeVirtualPath(rel.string()));
+        if (ec) continue;
+        const std::string normalized = NormalizeVirtualPath(rel.string());
+        paths.push_back(normalized);
+        case_map_.emplace(normalized, rel.generic_string());
     }
     remap_.Build(paths);
 }
 
 fs::path NativeAssetProvider::Resolve(const std::string& path) const {
-    return root_ / fs::path(remap_.Resolve(NormalizeVirtualPath(path)));
+    const std::string normalized = remap_.Resolve(NormalizeVirtualPath(path));
+    const auto it = case_map_.find(normalized);
+    return root_ / fs::path(it != case_map_.end() ? it->second : normalized);
 }
 
 bool NativeAssetProvider::Exists(const std::string& path) {

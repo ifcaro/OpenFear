@@ -21,9 +21,13 @@ void platform_bootstrap() {
 #endif
 }
 
+void platform_show_searching_message(Platform&) {}
+
 bool platform_prompt_retry_assets_missing(Platform&) {
     return false;
 }
+
+void platform_unload_discovery_ui(Platform&) {}
 
 void platform_log_memory_stats(const char*, IRenderer&) {}
 

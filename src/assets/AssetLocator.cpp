@@ -2,6 +2,7 @@
 #include "openfear/assets/Iso9660Reader.h"
 #include "openfear/assets/IsoFileSectorSource.h"
 #include "openfear/assets/PathNormalize.h"
+#include <cctype>
 #include <fstream>
 #include <cstdlib>
 #include <string>
@@ -67,7 +68,55 @@ bool IsoFileLooksLikeAssetRoot(const fs::path& iso_path) {
     if (!iso.Find("MAPFILE")) return false;
     return iso.Find("ATMOS.EXE") || iso.Find("INSTALL/ATMOS.EXE");
 }
+
+bool EqualsCaseInsensitive(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i])))
+            return false;
+    }
+    return true;
+}
+
+// Case-insensitive, single listing - real mounts can present these
+// filenames in any case (ISO9660 driver/mastering tool dependent). All 3
+// markers live in the same directory, so one pass resolves all of them.
+struct RootMarkers {
+    std::optional<fs::path> mapfile;
+    std::optional<fs::path> atmos_exe;
+    std::optional<fs::path> install_dir;
+};
+
+RootMarkers FindRootMarkers(const fs::path& dir) {
+    RootMarkers markers;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (!markers.mapfile && EqualsCaseInsensitive(name, "MAPFILE")) {
+            markers.mapfile = entry.path();
+        } else if (!markers.atmos_exe && EqualsCaseInsensitive(name, "ATMOS.EXE")) {
+            markers.atmos_exe = entry.path();
+        } else if (!markers.install_dir && EqualsCaseInsensitive(name, "INSTALL")) {
+            markers.install_dir = entry.path();
+        }
+    }
+    return markers;
+}
+
+std::optional<fs::path> FindEntryCaseInsensitive(const fs::path& dir, const std::string& name) {
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        if (EqualsCaseInsensitive(entry.path().filename().string(), name)) return entry.path();
+    }
+    return std::nullopt;
+}
 }  // namespace
+
+std::optional<fs::path> AssetLocator::find_case_insensitive(const fs::path& dir,
+                                                            const std::string& name) {
+    return FindEntryCaseInsensitive(dir, name);
+}
 
 bool AssetLocator::is_valid_root(const fs::path& path) {
     // A loose .iso file - checked first since path is a file, not a
@@ -81,16 +130,20 @@ bool AssetLocator::is_valid_root(const fs::path& path) {
     // with several homebrew installs. MAPFILE (no extension, same path in
     // both layouts) plus ATMOS.EXE (specific to this game) together make a
     // false positive unrealistic.
-    if (!FileOpens(path / "MAPFILE") && !FileOpens(path / "mapfile")) return false;
+    const RootMarkers markers = FindRootMarkers(path);
+    if (!markers.mapfile) return false;
+
     // Installed layout: ATMOS.EXE at root.
-    if (FileOpens(path / "ATMOS.EXE") || FileOpens(path / "atmos.exe")) return true;
+    if (markers.atmos_exe) return FileOpens(*markers.atmos_exe);
+
     // Raw, un-installed CD layout - same marker assets::LooksLikeCdLayout()
-    // uses (checked here as a single file open rather than a full directory
-    // listing, which this function doesn't have). Lets discovery succeed
-    // directly against a mounted/inserted original CD, not just an already-
-    // installed folder; the asset provider in use is responsible for
-    // actually reclassifying paths once this root is active.
-    return FileOpens(path / "INSTALL" / "ATMOS.EXE") || FileOpens(path / "install" / "ATMOS.EXE");
+    // uses. Lets discovery succeed against a real CD directly, without
+    // installing first; the asset provider handles reclassifying paths.
+    if (markers.install_dir) {
+        if (auto atmos = FindEntryCaseInsensitive(*markers.install_dir, "ATMOS.EXE"))
+            return FileOpens(*atmos);
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------

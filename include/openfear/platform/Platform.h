@@ -56,11 +56,20 @@ std::unique_ptr<Platform> create_platform();
 // LoadDriversAndFilesystems()). No-op on every other backend.
 void platform_bootstrap();
 
+// Called once, before the first AssetLocator::discover() attempt - each
+// backend shows whatever asset-search indicator it needs, if any.
+void platform_show_searching_message(Platform& platform);
+
 // Called when AssetLocator::discover() fails, before giving up. Returns
 // true to retry discovery (PS2: shows a message via the built-in bitmap
 // font, blocks for a button press) or false to fall through to the
 // generic console message + exit (desktop/Web, where a log is enough).
 bool platform_prompt_retry_assets_missing(Platform& platform);
+
+// Frees whatever platform_show_searching_message()/
+// platform_prompt_retry_assets_missing() loaded - call once discovery is
+// done, found or not. No-op where nothing was loaded.
+void platform_unload_discovery_ui(Platform& platform);
 
 // Sleeps off whatever's left of a frame's budget (frame_target - elapsed
 // since frame_begin), using whichever primitive this backend's threading

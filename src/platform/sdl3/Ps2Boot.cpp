@@ -247,6 +247,23 @@ void DrawPromptScreen(Platform& platform, const char* const* lines, int line_cou
 }
 }  // namespace
 
+void ShowSearchingMessage(Platform& platform) {
+    if (!g_prompt_font_loaded) {
+        g_prompt_font_loaded = g_prompt_font.Load(*platform.renderer);
+        if (!g_prompt_font_loaded)
+            Trace("WARNING: basic font failed to load, screen will be blank");
+    }
+
+    platform.renderer->beginFrame();
+    platform.renderer->clear(0, 0, 0);
+    if (g_prompt_font_loaded) {
+        const char* kMsg = "Searching for game files...";
+        const int x = (640 - g_prompt_font.TextWidth(kMsg)) / 2;
+        g_prompt_font.DrawText(*platform.renderer, x, 230, kMsg, 255, 255, 255);
+    }
+    platform.renderer->endFrame();
+}
+
 bool PromptAssetsMissing(Platform& platform) {
     Trace("enter PromptAssetsMissing()");
 
@@ -317,6 +334,12 @@ bool PromptAssetsMissing(Platform& platform) {
         DrawPromptScreen(platform, kMissingLines,
                          static_cast<int>(sizeof(kMissingLines) / sizeof(kMissingLines[0])));
     }
+}
+
+void UnloadAssetsMissingPrompt(Platform& platform) {
+    if (!g_prompt_font_loaded) return;
+    g_prompt_font.Unload(*platform.renderer);
+    g_prompt_font_loaded = false;
 }
 
 }  // namespace openfear::ps2

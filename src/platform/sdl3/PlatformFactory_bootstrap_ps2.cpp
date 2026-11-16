@@ -14,8 +14,16 @@ void platform_bootstrap() {
     ps2::LoadDriversAndFilesystems();
 }
 
+void platform_show_searching_message(Platform& platform) {
+    ps2::ShowSearchingMessage(platform);
+}
+
 bool platform_prompt_retry_assets_missing(Platform& platform) {
     return ps2::PromptAssetsMissing(platform);
+}
+
+void platform_unload_discovery_ui(Platform& platform) {
+    ps2::UnloadAssetsMissingPrompt(platform);
 }
 
 void platform_log_memory_stats(const char* tag, IRenderer& renderer) {

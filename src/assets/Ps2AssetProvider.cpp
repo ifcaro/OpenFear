@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
+#include <fstream>
 
 #include <delaythread.h>
 #include <kernel.h>
@@ -75,6 +76,42 @@ std::optional<std::filesystem::path> Ps2FindCdfsRoot() {
     return std::nullopt;
 }
 
+namespace {
+// Single pass per candidate folder - checks the MAPFILE/ATMOS.EXE/INSTALL
+// install markers and a loose-.iso name match in the same directory
+// listing, instead of two separate scans of the same folder (is_valid_root()'s
+// own marker check, then a second readdir() hunting for a loose .iso).
+struct MassCandidateScan {
+    bool mapfile = false;
+    bool atmos_exe = false;
+    bool install_dir = false;
+    std::optional<std::string> iso_name;
+};
+
+template <typename LooksLikeIso>
+MassCandidateScan ScanMassCandidate(const std::filesystem::path& dir,
+                                    const LooksLikeIso& looks_like_our_iso) {
+    MassCandidateScan result;
+    DIR* d = opendir(dir.string().c_str());
+    if (!d) return result;
+    for (dirent* ent = readdir(d); ent != nullptr; ent = readdir(d)) {
+        const std::string name = ent->d_name;
+        if (name == "." || name == "..") continue;
+        const std::string upper = NormalizeVirtualPath(name);
+        if (!result.mapfile && upper == "MAPFILE") {
+            result.mapfile = true;
+        } else if (!result.atmos_exe && upper == "ATMOS.EXE") {
+            result.atmos_exe = true;
+        } else if (!result.install_dir && upper == "INSTALL") {
+            result.install_dir = true;
+        }
+        if (!result.iso_name && looks_like_our_iso(name)) result.iso_name = name;
+    }
+    closedir(d);
+    return result;
+}
+}  // namespace
+
 std::optional<std::filesystem::path> Ps2FindMassRoot() {
     // "mass:" (USB stick, mounted by bdmfs_fatfs - a different, unaffected
     // driver) still goes through the normal generic check. Root itself
@@ -106,30 +143,21 @@ std::optional<std::filesystem::path> Ps2FindMassRoot() {
 
             DIR* sub = opendir(candidate.string().c_str());
             if (sub) {
-                // A real subdirectory - check it as a folder install. A
-                // loose file at mass: root (another homebrew's .elf, a
-                // save, ...) goes through the other branch below instead,
-                // checked as a loose .iso by name.
-                if (AssetLocator::is_valid_root(candidate)) {
-                    found = candidate;
-                } else {
-                    // Not a complete install itself - a loose .iso one
-                    // level down (a USB used for more than one homebrew
-                    // thing, same reasoning as the folder case above) is
-                    // also a valid asset source, read straight out of it
-                    // via IsoAssetProvider instead of extracting it first.
-                    for (dirent* sub_ent = readdir(sub); sub_ent != nullptr;
-                         sub_ent = readdir(sub)) {
-                        const std::string sub_name = sub_ent->d_name;
-                        if (!looks_like_our_iso(sub_name)) continue;
-                        const std::filesystem::path iso_candidate = candidate / sub_name;
-                        if (AssetLocator::is_valid_root(iso_candidate)) {
-                            found = iso_candidate;
-                            break;
-                        }
-                    }
-                }
                 closedir(sub);
+                // A real subdirectory - check it as a folder install and
+                // for a loose .iso one level down (a USB used for more
+                // than one homebrew thing) in the same listing.
+                const MassCandidateScan scan = ScanMassCandidate(candidate, looks_like_our_iso);
+                if (scan.mapfile && scan.atmos_exe) {
+                    found = candidate;
+                } else if (scan.mapfile && scan.install_dir) {
+                    std::ifstream probe(candidate / "INSTALL" / "ATMOS.EXE", std::ios::binary);
+                    if (probe.good()) found = candidate;
+                }
+                if (!found && scan.iso_name) {
+                    const std::filesystem::path iso_candidate = candidate / *scan.iso_name;
+                    if (AssetLocator::is_valid_root(iso_candidate)) found = iso_candidate;
+                }
             } else if (looks_like_our_iso(name) && AssetLocator::is_valid_root(candidate)) {
                 // Not a directory - a loose .iso sitting directly in
                 // mass: root is also a valid asset source.

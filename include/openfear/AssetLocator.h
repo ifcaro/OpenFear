@@ -53,6 +53,13 @@ public:
     // file standing in for either.
     static bool is_valid_root(const fs::path& path);
 
+    // Case-insensitive single-level directory lookup - real CD/USB mounts
+    // can present marker filenames in any case. Exposed for callers (e.g.
+    // InstallFlow.cpp) that need the same case-handling is_valid_root()
+    // uses, without duplicating it.
+    static std::optional<fs::path> find_case_insensitive(const fs::path& dir,
+                                                         const std::string& name);
+
 private:
     static std::optional<fs::path> from_cli(int argc, char* argv[]);
     static std::optional<fs::path> from_env();
