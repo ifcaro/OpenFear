@@ -1,0 +1,212 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LOCALAPPDATA }}\vcpkg\archives
+          key: vcpkg-sdl3-windows
+
+      - name: Cache FetchContent deps (libcinepak/libindeo3)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: windows-deps-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Install SDL3 via vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:/vcpkg
+          C:/vcpkg/bootstrap-vcpkg.bat
+          C:/vcpkg/vcpkg.exe install sdl3:x64-windows
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build --target openfear --config Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openfear-windows
+          path: |
+            build/bin/Release/openfear.exe
+            build/bin/Release/SDL3.dll
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache FetchContent deps (SDL3/libcinepak/libindeo3)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: linux-deps-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Install build + SDL3 system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            autoconf autoconf-archive automake libtool bison flex \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxss-dev libxfixes-dev libwayland-dev libxkbcommon-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libibus-1.0-dev libasound2-dev libpulse-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --target openfear
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openfear-linux
+          path: build/bin/openfear
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache vcpkg archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-sdl3-macos
+
+      - name: Cache FetchContent deps (libcinepak/libindeo3)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: macos-deps-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Install SDL3 via vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
+          /tmp/vcpkg/bootstrap-vcpkg.sh
+          /tmp/vcpkg/vcpkg install sdl3:arm64-osx
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Unix Makefiles"
+          -DCMAKE_TOOLCHAIN_FILE=/tmp/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=arm64-osx
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --target openfear
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openfear-macos
+          path: build/bin/openfear
+
+  ps2:
+    runs-on: ubuntu-latest
+    container: ghcr.io/ps2dev/ps2dev@sha256:bc2eb0ddcf3c83f8697d3b7da2a654dacaae4c862322b712884858d20daf74dc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: apk add --no-cache cmake make g++ git
+
+      - name: Cache FetchContent deps (SDL3/libcinepak/libindeo3)
+        uses: actions/cache@v4
+        with:
+          path: build-ps2/_deps
+          key: ps2-deps-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-ps2 -G "Unix Makefiles"
+          -DCMAKE_TOOLCHAIN_FILE=$PS2DEV/share/ps2dev.cmake
+          -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build-ps2 --target openfear
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openfear-ps2
+          path: build-ps2/bin/openfear.elf
+
+  web:
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk@sha256:6bd7aef93408b10bf7b36642cb7c91119b302f720b9ec2d20439f73cf07fe894
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache FetchContent deps (SDL3/libcinepak/libindeo3)
+        uses: actions/cache@v4
+        with:
+          path: build-web/_deps
+          key: web-deps-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-web --target openfear
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openfear-web
+          path: build-web/bin/
+
+  release:
+    needs: [windows, linux, macos, ps2]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package per-platform zips
+        run: |
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+            zip -r -j "../${name}.zip" "$dir"
+          done
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.zip"
+
+  deploy-web:
+    needs: [web]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-web
+          path: web-dist
+
+      # Cloudflare Pages serves index.html as the site root; the CMake
+      # target's own output name (openfear.html, matching the other
+      # platform binaries) stays as-is for local testing.
+      - name: Rename entry point for Pages
+        run: cp web-dist/openfear.html web-dist/index.html
+
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web-dist --project-name=openfear
