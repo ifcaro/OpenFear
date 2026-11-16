@@ -8,7 +8,7 @@ on:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +32,7 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake -S . -B build -G "Visual Studio 18 2026" -A x64
           -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
 
       - name: Build
@@ -62,7 +62,7 @@ jobs:
           sudo apt-get install -y -qq \
             autoconf autoconf-archive automake libtool bison flex \
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxcursor-dev \
-            libxi-dev libxss-dev libxfixes-dev libwayland-dev libxkbcommon-dev \
+            libxi-dev libxss-dev libxfixes-dev libxtst-dev libwayland-dev libxkbcommon-dev \
             libegl1-mesa-dev libgl1-mesa-dev libibus-1.0-dev libasound2-dev libpulse-dev
 
       - name: Configure
