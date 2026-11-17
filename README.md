@@ -24,7 +24,7 @@ harness (no real window/audio device needed). The full manual playtest checklist
 |---|---|
 | Windows (SDL3) | Full build + test loop, the primary development target. |
 | PS2 (homebrew, PS2Dev/SDL3) | Boots from `mass:` device (folder install); audio and render (PAL/NTSC overscan) confirmed on real hardware. A loose `.iso` on `mass:` works but is slow (FAT seek cost on a large single file) - a folder install is the fast path. CD/DVD boot and OPL/HDD not yet tested. |
-| Web (Emscripten) | Builds and runs end-to-end in a real browser, including audio/video playback; asset folder picked via `showDirectoryPicker`. Live at [openfear.pages.dev](https://openfear.pages.dev). |
+| Web (Emscripten) | Builds and runs end-to-end in a real browser, including audio/video playback; asset folder picked via `showDirectoryPicker`. Live at [openfear.ifcaro.net](https://openfear.ifcaro.net). |
 | Linux (SDL3) | Builds and runs for real on real hardware. |
 | macOS (SDL3) | Builds and runs for real on a real Intel Mac, including install/uninstall launchers. |
 
