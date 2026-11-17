@@ -44,6 +44,8 @@ jobs:
           path: |
             build/bin/Release/openfear.exe
             build/bin/Release/SDL3.dll
+            build/bin/Release/Install.bat
+            build/bin/Release/Uninstall.bat
 
   linux:
     runs-on: ubuntu-latest
@@ -77,7 +79,23 @@ jobs:
           path: build/bin/openfear
 
   macos:
+    # 2 full cross-compiles on the same arm64 runner (CMAKE_OSX_ARCHITECTURES
+    # + matching vcpkg triplet per arch) - macos-universal below lipo's them
+    # into the 1 binary actually distributed.
     runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            vcpkg_triplet: arm64-osx
+            osx_arch: arm64
+            # Apple Silicon hardware never shipped below Big Sur.
+            osx_deployment_target: "11.0"
+          - arch: x64
+            vcpkg_triplet: x64-osx
+            osx_arch: x86_64
+            # Matches icon/Info.plist.in's LSMinimumSystemVersion.
+            osx_deployment_target: "10.15"
     steps:
       - uses: actions/checkout@v4
 
@@ -85,25 +103,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/vcpkg/archives
-          key: vcpkg-sdl3-macos
+          key: vcpkg-sdl3-macos-${{ matrix.arch }}
 
       - name: Cache FetchContent deps (libcinepak/libindeo3)
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: macos-deps-${{ hashFiles('CMakeLists.txt') }}
+          key: macos-deps-${{ matrix.arch }}-${{ hashFiles('CMakeLists.txt') }}
 
       - name: Install SDL3 via vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
           /tmp/vcpkg/bootstrap-vcpkg.sh
-          /tmp/vcpkg/vcpkg install sdl3:arm64-osx
+          /tmp/vcpkg/vcpkg install sdl3:${{ matrix.vcpkg_triplet }}
 
       - name: Configure
         run: >
           cmake -S . -B build -G "Unix Makefiles"
           -DCMAKE_TOOLCHAIN_FILE=/tmp/vcpkg/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=arm64-osx
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.vcpkg_triplet }}
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }}
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.osx_deployment_target }}
           -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
@@ -111,8 +131,42 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          name: openfear-macos-${{ matrix.arch }}
+          # Parent dir, not OpenFear.app itself - a single-dir path becomes
+          # the artifact root, dropping that dir's own name from the result.
+          path: build/bin
+
+  macos-universal:
+    needs: [macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-macos-arm64
+          path: artifacts/arm64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-macos-x64
+          path: artifacts/x64
+
+      - name: Combine into a universal .app via lipo
+        run: |
+          mkdir dist
+          cp -R artifacts/arm64/OpenFear.app dist/OpenFear.app
+          cp -R "artifacts/arm64/Install OpenFear.app" "dist/Install OpenFear.app"
+          cp -R "artifacts/arm64/Uninstall OpenFear.app" "dist/Uninstall OpenFear.app"
+          lipo -create \
+            artifacts/arm64/OpenFear.app/Contents/MacOS/openfear \
+            artifacts/x64/OpenFear.app/Contents/MacOS/openfear \
+            -output dist/OpenFear.app/Contents/MacOS/openfear
+          lipo -info dist/OpenFear.app/Contents/MacOS/openfear
+
+      - uses: actions/upload-artifact@v4
+        with:
           name: openfear-macos
-          path: build/bin/openfear
+          # Same parent-dir reason as the macos job's upload step above.
+          path: dist
 
   ps2:
     runs-on: ubuntu-latest
@@ -170,22 +224,59 @@ jobs:
           path: build-web/bin/
 
   release:
-    needs: [windows, linux, macos, ps2]
+    needs: [windows, linux, macos-universal, ps2]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # Explicit names: a name-less download would also grab macos's 2
+      # intermediate per-arch artifacts, meant only for macos-universal.
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: openfear-windows
+          path: artifacts/openfear-windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-linux
+          path: artifacts/openfear-linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-macos
+          path: artifacts/openfear-macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: openfear-ps2
+          path: artifacts/openfear-ps2
+
+      # actions/upload-artifact strips Unix permissions (every file round-trips
+      # as 644, actions/upload-artifact#38) - restoring +x on the binaries here.
+      - name: Restore executable permissions lost by the artifact round-trip
+        run: |
+          chmod +x artifacts/openfear-linux/openfear
+          chmod +x artifacts/openfear-macos/openfear.app/Contents/MacOS/openfear
+          chmod +x "artifacts/openfear-macos/Install OpenFear.app/Contents/MacOS/droplet"
+          chmod +x "artifacts/openfear-macos/Uninstall OpenFear.app/Contents/MacOS/applet"
+
+      - name: Add per-platform README + LICENSE to each zip's contents
+        run: |
+          for plat in windows linux macos ps2; do
+            cp "packaging/${plat}/README.txt" "artifacts/openfear-${plat}/README.txt"
+            cp LICENSE "artifacts/openfear-${plat}/LICENSE.txt"
+          done
 
       - name: Package per-platform zips
+        # -j flattens loose binaries fine, but destroys a bundle's tree -
+        # detect that structurally (nested dir present) instead of by name.
         run: |
           cd artifacts
           for dir in */; do
             name="${dir%/}"
-            zip -r -j "../${name}.zip" "$dir"
+            if find "$dir" -mindepth 1 -maxdepth 1 -type d | grep -q .; then
+              (cd "$dir" && zip -r "../../${name}.zip" .)
+            else
+              zip -r -j "../${name}.zip" "$dir"
+            fi
           done
 
       - uses: softprops/action-gh-release@v2

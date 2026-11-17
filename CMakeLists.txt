@@ -14,6 +14,7 @@ include_directories(include)
 include(${PROJECT_SOURCE_DIR}/cmake/OpenFearPlatform.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/OpenFearPS2.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/OpenFearEmscripten.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/OpenFearMacOS.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/OpenFearFormat.cmake)
 
 # Selects which concrete backend the openfear_platform alias (below) points

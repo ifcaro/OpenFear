@@ -322,12 +322,69 @@ int RunInstall(int argc, char* argv[], const std::optional<fs::path>& install_to
     return 0;
 }
 
+bool ParseUninstallFlag(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--uninstall") == 0) return true;
+    }
+    return false;
+}
+
+// Only removes what --install itself wrote to the per-user config
+// directory - never the visible "assets" folder next to the executable,
+// which the user manages themselves. load_config() confirms the saved
+// path still looks like a real Atmosfear install before returning it, so
+// a folder that no longer does is left alone instead of deleted blind.
+int RunUninstall() {
+    platform_bootstrap();
+    auto platform = create_platform();
+    if (!platform->init("Atmosfear - Uninstall")) {
+        std::fputs("[UNINSTALL] Platform init failed\n", stderr);
+        return 1;
+    }
+    platform->renderer->setCursorVisible(true);
+
+    platform::BitmapFont font;
+    const bool font_ok = font.Load(*platform->renderer);
+    struct ShutdownGuard {
+        Platform* platform;
+        platform::BitmapFont* font;
+        bool font_ok;
+        ~ShutdownGuard() {
+            if (font_ok) font->Unload(*platform->renderer);
+            platform->shutdown();
+        }
+    } shutdown_guard{platform.get(), &font, font_ok};
+
+    const auto installed = AssetLocator::load_config();
+    if (!installed) {
+        DrawMessage(*platform, font, font_ok, "Nothing to uninstall.", nullptr);
+        return 0;
+    }
+
+    std::error_code ec;
+    fs::remove_all(*installed, ec);
+    if (ec) {
+        DrawMessage(*platform, font, font_ok,
+                    "Could not fully remove:", installed->generic_string().c_str());
+        return 1;
+    }
+    fs::remove(AssetLocator::config_dir() / "openfear.cfg", ec);
+
+    DrawMessage(*platform, font, font_ok, "Uninstalled.", installed->generic_string().c_str());
+    return 0;
+}
+
 }  // namespace
 
 std::optional<int> RunInstallIfRequested(int argc, char* argv[]) {
     std::optional<fs::path> install_to;
     if (!ParseInstallFlag(argc, argv, &install_to)) return std::nullopt;
     return RunInstall(argc, argv, install_to);
+}
+
+std::optional<int> RunUninstallIfRequested(int argc, char* argv[]) {
+    if (!ParseUninstallFlag(argc, argv)) return std::nullopt;
+    return RunUninstall();
 }
 
 }  // namespace openfear

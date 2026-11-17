@@ -89,6 +89,9 @@ int main(int argc, char* argv[]) {
     if (auto exit_code = RunInstallIfRequested(argc, argv)) {
         return *exit_code;
     }
+    if (auto exit_code = RunUninstallIfRequested(argc, argv)) {
+        return *exit_code;
+    }
 #endif
 
     auto runtime = InitializeRuntime(argc, argv);

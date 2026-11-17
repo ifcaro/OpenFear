@@ -25,12 +25,24 @@ target_link_libraries(openfear PRIVATE openfear_platform openfear_game)
 target_sources(openfear PRIVATE $<$<CONFIG:Debug>:DebugQuickstart.cpp>)
 
 openfear_add_icon(openfear)
+openfear_package_macos_bundle(openfear)
+openfear_add_macos_install_launcher(openfear)
+openfear_add_macos_uninstall_launcher(openfear)
 
 # GUI subsystem (no console window) on native Windows only.
 if(WIN32 AND NOT EMSCRIPTEN)
     set_target_properties(openfear PROPERTIES
         WIN32_EXECUTABLE TRUE
         LINK_FLAGS "/ENTRY:mainCRTStartup"
+    )
+
+    add_custom_command(TARGET openfear POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/launchers/Install.bat"
+            "$<TARGET_FILE_DIR:openfear>/Install.bat"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/launchers/Uninstall.bat"
+            "$<TARGET_FILE_DIR:openfear>/Uninstall.bat"
     )
 endif()
 

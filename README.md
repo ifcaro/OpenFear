@@ -24,8 +24,9 @@ harness (no real window/audio device needed). The full manual playtest checklist
 |---|---|
 | Windows (SDL3) | Full build + test loop, the primary development target. |
 | PS2 (homebrew, PS2Dev/SDL3) | Boots from `mass:` device (folder install); audio and render (PAL/NTSC overscan) confirmed on real hardware. A loose `.iso` on `mass:` works but is slow (FAT seek cost on a large single file) - a folder install is the fast path. CD/DVD boot and OPL/HDD not yet tested. |
-| Web (Emscripten) | Builds and runs end-to-end in a real browser, including audio/video playback; asset folder picked via `showDirectoryPicker`. |
-| Linux / macOS | Code audited for portability blockers (none found) but not yet built. |
+| Web (Emscripten) | Builds and runs end-to-end in a real browser, including audio/video playback; asset folder picked via `showDirectoryPicker`. Live at [openfear.pages.dev](https://openfear.pages.dev). |
+| Linux (SDL3) | Builds and runs for real on real hardware. |
+| macOS (SDL3) | Builds and runs for real on a real Intel Mac, including install/uninstall launchers. |
 
 ## Building (Windows)
 
@@ -48,14 +49,17 @@ C:/Program Files/Microsoft Visual Studio/<version>/<edition>/Common7/IDE/CommonE
 
 OpenFear needs to find your Atmosfear asset folder (the installed game, or the raw CD - both
 work, raw CD layout is translated on the fly). Discovery order: `--assets <path>` CLI flag →
-`OPENFEAR_ASSETS` environment variable → saved config from a previous run → CD/DVD drive scan →
-`assets/` next to the executable. Only `--install` writes the saved config - a one-off
+`OPENFEAR_ASSETS` environment variable → saved config from a previous run → CD/DVD drive scan
+(Windows/PS2 only) → `assets/` next to the executable. Only `--install` writes the saved config - a one-off
 `--assets`/`OPENFEAR_ASSETS` override, or even a CD-scan hit, is never remembered on its own.
 
 If nothing is found, run `openfear --install [path]` once: it finds your CD/ISO/folder the same
 way and copies it into `assets/` next to the executable (or, if that's not writable, your
 per-user config folder) - no path needed. Pass a path (`openfear --install D:\MyGames\OpenFear`)
-to install somewhere else instead.
+to install somewhere else instead. `openfear --uninstall` removes whatever `--install` put there.
+
+On Windows and macOS, the release download also includes helpers that wrap the same flags
+without a terminal.
 
 ## Testing
 

@@ -18,4 +18,11 @@ namespace openfear {
 // in). Fails if the discovered source isn't a CD/ISO.
 std::optional<int> RunInstallIfRequested(int argc, char* argv[]);
 
+// Handles `openfear --uninstall` to completion if present; returns
+// nullopt immediately, touching nothing, if it isn't. Only removes what
+// --install itself wrote to the per-user config directory - never a
+// visible "assets" folder next to the executable, which the user manages
+// themselves.
+std::optional<int> RunUninstallIfRequested(int argc, char* argv[]);
+
 }  // namespace openfear
