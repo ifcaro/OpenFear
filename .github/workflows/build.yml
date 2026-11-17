@@ -79,23 +79,11 @@ jobs:
           path: build/bin/openfear
 
   macos:
-    # 2 full cross-compiles on the same arm64 runner (CMAKE_OSX_ARCHITECTURES
-    # + matching vcpkg triplet per arch) - macos-universal below lipo's them
-    # into the 1 binary actually distributed.
+    # 1 runner, both architectures built sequentially (CMAKE_OSX_ARCHITECTURES
+    # + matching vcpkg triplet per arch, into separate build dirs) then lipo'd
+    # into the 1 universal binary actually distributed - avoids 3 separate
+    # waits for the scarcer macos-latest runner queue.
     runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
-          - arch: arm64
-            vcpkg_triplet: arm64-osx
-            osx_arch: arm64
-            # Apple Silicon hardware never shipped below Big Sur.
-            osx_deployment_target: "11.0"
-          - arch: x64
-            vcpkg_triplet: x64-osx
-            osx_arch: x86_64
-            # Matches icon/Info.plist.in's LSMinimumSystemVersion.
-            osx_deployment_target: "10.15"
     steps:
       - uses: actions/checkout@v4
 
@@ -103,69 +91,59 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/vcpkg/archives
-          key: vcpkg-sdl3-macos-${{ matrix.arch }}
+          key: vcpkg-sdl3-macos
 
       - name: Cache FetchContent deps (libcinepak/libindeo3)
         uses: actions/cache@v4
         with:
-          path: build/_deps
-          key: macos-deps-${{ matrix.arch }}-${{ hashFiles('CMakeLists.txt') }}
+          path: |
+            build-arm64/_deps
+            build-x64/_deps
+          key: macos-deps-${{ hashFiles('CMakeLists.txt') }}
 
-      - name: Install SDL3 via vcpkg
+      - name: Install SDL3 via vcpkg (both architectures)
         run: |
           git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
           /tmp/vcpkg/bootstrap-vcpkg.sh
-          /tmp/vcpkg/vcpkg install sdl3:${{ matrix.vcpkg_triplet }}
+          /tmp/vcpkg/vcpkg install sdl3:arm64-osx sdl3:x64-osx
 
-      - name: Configure
+      - name: Configure + build (arm64)
         run: >
-          cmake -S . -B build -G "Unix Makefiles"
+          cmake -S . -B build-arm64 -G "Unix Makefiles"
           -DCMAKE_TOOLCHAIN_FILE=/tmp/vcpkg/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=${{ matrix.vcpkg_triplet }}
-          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }}
-          -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.osx_deployment_target }}
+          -DVCPKG_TARGET_TRIPLET=arm64-osx
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-arm64 --target openfear
 
-      - name: Build
-        run: cmake --build build --target openfear
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openfear-macos-${{ matrix.arch }}
-          # Parent dir, not OpenFear.app itself - a single-dir path becomes
-          # the artifact root, dropping that dir's own name from the result.
-          path: build/bin
-
-  macos-universal:
-    needs: [macos]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: openfear-macos-arm64
-          path: artifacts/arm64
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: openfear-macos-x64
-          path: artifacts/x64
+      - name: Configure + build (x64)
+        run: >
+          cmake -S . -B build-x64 -G "Unix Makefiles"
+          -DCMAKE_TOOLCHAIN_FILE=/tmp/vcpkg/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=x64-osx
+          -DCMAKE_OSX_ARCHITECTURES=x86_64
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+          -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-x64 --target openfear
 
       - name: Combine into a universal .app via lipo
         run: |
           mkdir dist
-          cp -R artifacts/arm64/OpenFear.app dist/OpenFear.app
-          cp -R "artifacts/arm64/Install OpenFear.app" "dist/Install OpenFear.app"
-          cp -R "artifacts/arm64/Uninstall OpenFear.app" "dist/Uninstall OpenFear.app"
+          cp -R build-arm64/bin/OpenFear.app dist/OpenFear.app
+          cp -R "build-arm64/bin/Install OpenFear.app" "dist/Install OpenFear.app"
+          cp -R "build-arm64/bin/Uninstall OpenFear.app" "dist/Uninstall OpenFear.app"
           lipo -create \
-            artifacts/arm64/OpenFear.app/Contents/MacOS/openfear \
-            artifacts/x64/OpenFear.app/Contents/MacOS/openfear \
+            build-arm64/bin/OpenFear.app/Contents/MacOS/openfear \
+            build-x64/bin/OpenFear.app/Contents/MacOS/openfear \
             -output dist/OpenFear.app/Contents/MacOS/openfear
           lipo -info dist/OpenFear.app/Contents/MacOS/openfear
 
       - uses: actions/upload-artifact@v4
         with:
           name: openfear-macos
-          # Same parent-dir reason as the macos job's upload step above.
+          # Parent dir, not OpenFear.app itself - a single-dir path becomes
+          # the artifact root, dropping that dir's own name from the result.
           path: dist
 
   ps2:
@@ -224,14 +202,12 @@ jobs:
           path: build-web/bin/
 
   release:
-    needs: [windows, linux, macos-universal, ps2]
+    needs: [windows, linux, macos, ps2]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      # Explicit names: a name-less download would also grab macos's 2
-      # intermediate per-arch artifacts, meant only for macos-universal.
       - uses: actions/download-artifact@v4
         with:
           name: openfear-windows
@@ -254,7 +230,7 @@ jobs:
       - name: Restore executable permissions lost by the artifact round-trip
         run: |
           chmod +x artifacts/openfear-linux/openfear
-          chmod +x artifacts/openfear-macos/openfear.app/Contents/MacOS/openfear
+          chmod +x artifacts/openfear-macos/OpenFear.app/Contents/MacOS/openfear
           chmod +x "artifacts/openfear-macos/Install OpenFear.app/Contents/MacOS/droplet"
           chmod +x "artifacts/openfear-macos/Uninstall OpenFear.app/Contents/MacOS/applet"
 
